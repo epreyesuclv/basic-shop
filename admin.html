@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Administracion - Mi Tienda</title>
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+    <!-- Login Screen -->
+    <div class="login-screen" id="loginScreen">
+        <div class="login-card">
+            <div class="login-header">
+                <h1>Panel de Administracion</h1>
+                <p>Ingresa tu contrasena para continuar</p>
+            </div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="password">Contrasena</label>
+                    <input type="password" id="password" placeholder="Ingresa la contrasena" required>
+                </div>
+                <button type="submit" class="btn-login">Ingresar</button>
+                <p class="login-hint">Contrasena por defecto: admin123</p>
+            </form>
+        </div>
+    </div>
+
+    <!-- Admin Panel -->
+    <div class="admin-panel" id="adminPanel" style="display: none;">
+        <!-- Header -->
+        <header class="admin-header">
+            <div class="header-left">
+                <h1>Panel de Administracion</h1>
+                <a href="index.html" class="link-store" target="_blank">Ver tienda</a>
+            </div>
+            <button class="btn-logout" id="logoutBtn">Cerrar sesion</button>
+        </header>
+
+        <!-- Main Content -->
+        <main class="admin-main">
+            <!-- Stats -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <span class="stat-number" id="totalProducts">0</span>
+                    <span class="stat-label">Productos</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-number" id="totalCategories">0</span>
+                    <span class="stat-label">Categorias</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-number" id="avgPrice">$0</span>
+                    <span class="stat-label">Precio promedio</span>
+                </div>
+            </div>
+
+            <!-- Actions Bar -->
+            <div class="actions-bar">
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="Buscar productos...">
+                </div>
+                <div class="filter-box">
+                    <select id="categoryFilter">
+                        <option value="">Todas las categorias</option>
+                    </select>
+                </div>
+                <button class="btn-primary" id="addProductBtn">
+                    + Agregar Producto
+                </button>
+            </div>
+
+            <!-- Products Table -->
+            <div class="table-container">
+                <table class="products-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Producto</th>
+                            <th>Categoria</th>
+                            <th>Precio</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="productsTableBody">
+                        <!-- Se genera dinamicamente -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Empty State -->
+            <div class="empty-state" id="emptyState" style="display: none;">
+                <p>No se encontraron productos</p>
+            </div>
+
+            <!-- Export/Import Section -->
+            <div class="data-section">
+                <h3>Gestionar Datos</h3>
+                <div class="data-actions">
+                    <button class="btn-secondary" id="exportBtn">Exportar productos (JSON)</button>
+                    <button class="btn-secondary" id="importBtn">Importar productos</button>
+                    <input type="file" id="importFile" accept=".json" style="display: none;">
+                    <button class="btn-danger" id="resetBtn">Restaurar valores por defecto</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal for Add/Edit Product -->
+    <div class="modal-overlay" id="productModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="modalTitle">Agregar Producto</h2>
+                <button class="close-modal" id="closeModal">&times;</button>
+            </div>
+            <form id="productForm">
+                <div class="modal-body">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="productName">Nombre del producto *</label>
+                            <input type="text" id="productName" required placeholder="Ej: Hamburguesa de res">
+                        </div>
+                        <div class="form-group">
+                            <label for="productEmoji">Emoji</label>
+                            <input type="text" id="productEmoji" placeholder="Ej: 🍔" maxlength="4">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="productDescription">Descripcion</label>
+                        <textarea id="productDescription" placeholder="Descripcion corta del producto"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="productPrice">Precio *</label>
+                            <input type="number" id="productPrice" required min="0" placeholder="15000">
+                        </div>
+                        <div class="form-group">
+                            <label for="productCategory">Categoria *</label>
+                            <div class="category-input">
+                                <select id="productCategorySelect">
+                                    <option value="">Seleccionar existente...</option>
+                                </select>
+                                <input type="text" id="productCategoryNew" placeholder="O escribe una nueva">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" id="cancelBtn">Cancelar</button>
+                    <button type="submit" class="btn-primary" id="saveBtn">Guardar</button>
+                </div>
+                <input type="hidden" id="productId">
+            </form>
+        </div>
+    </div>
+
+    <!-- Confirm Delete Modal -->
+    <div class="modal-overlay" id="deleteModal">
+        <div class="modal modal-small">
+            <div class="modal-header">
+                <h2>Confirmar eliminacion</h2>
+                <button class="close-modal" id="closeDeleteModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>¿Estas seguro de que deseas eliminar <strong id="deleteProductName"></strong>?</p>
+                <p class="text-muted">Esta accion no se puede deshacer.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="cancelDeleteBtn">Cancelar</button>
+                <button type="button" class="btn-danger" id="confirmDeleteBtn">Eliminar</button>
+            </div>
+            <input type="hidden" id="deleteProductId">
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toastContainer"></div>
+
+    <script src="js/products.js"></script>
+    <script src="js/admin.js"></script>
+</body>
+</html>
