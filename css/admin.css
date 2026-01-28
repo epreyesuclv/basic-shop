@@ -1081,6 +1081,15 @@ body {
     color: var(--text-light);
 }
 
+.historial-item-products {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.5rem;
+    margin-top: 0.25rem;
+    font-size: 0.8rem;
+    color: var(--text-light);
+}
+
 .historial-item-total {
     font-size: 1.1rem;
     font-weight: 700;

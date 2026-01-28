@@ -571,11 +571,17 @@ async function renderHistorialVentas() {
     container.innerHTML = ventasData.map(v => {
         const fecha = new Date(v.fecha).toLocaleDateString('es-CO');
         const prods = v.productos || [];
+        const productsHtml = prods.map(p => {
+            const nombre = escapeHtml(p.nombre || p.name || p.nombreOriginal || 'Producto');
+            const cantidad = typeof p.cantidad === 'number' ? p.cantidad : parseInt(p.cantidad, 10) || 1;
+            return `<span>${cantidad} x ${nombre}</span>`;
+        }).join(', ');
         return `
             <div class="historial-item">
                 <div class="historial-item-info">
                     <h4>${escapeHtml(v.nombre)}</h4>
                     <p>${fecha} - ${v.totalProductos || prods.length} productos, ${v.totalUnidades || 0} unidades</p>
+                    <div class="historial-item-products">${productsHtml}</div>
                 </div>
                 <div style="display:flex;align-items:center;gap:1rem;">
                     <span class="historial-item-total">$${formatPrice(v.total)}</span>
@@ -606,12 +612,12 @@ async function deleteVenta(id) {
 
 // ========== WHATSAPP IMPORT ==========
 function parseWhatsAppOrder(text) {
-    const clean = text.replace(/\*/g, '');
+    const clean = text.replace(/\*/g, '').replace(/\r/g, '');
 
-    const clienteMatch = clean.match(/Cliente:\s*(.+?)(?:\n|Telefono:|Direccion:|Notas:|---)/i);
-    const telefonoMatch = clean.match(/Telefono:\s*(.+?)(?:\n|Direccion:|Notas:|---)/i);
-    const direccionMatch = clean.match(/Direccion:\s*(.+?)(?:\n|Notas:|---)/i);
-    const notasMatch = clean.match(/Notas:\s*(.+?)(?:\n|---)/i);
+    const clienteMatch = clean.match(/Cliente:\s*([\s\S]*?)(?=Tel[eé]fono:|Direccion:|Dirección:|Notas:|---\s*PRODUCTOS\s*---|TOTAL:|$)/i);
+    const telefonoMatch = clean.match(/Tel[eé]fono:\s*([\s\S]*?)(?=Direccion:|Dirección:|Notas:|---\s*PRODUCTOS\s*---|TOTAL:|$)/i);
+    const direccionMatch = clean.match(/Direcci[oó]n:\s*([\s\S]*?)(?=Notas:|---\s*PRODUCTOS\s*---|TOTAL:|$)/i);
+    const notasMatch = clean.match(/Notas:\s*([\s\S]*?)(?=---\s*PRODUCTOS\s*---|TOTAL:|$)/i);
 
     const cliente = clienteMatch ? clienteMatch[1].trim() : 'Sin nombre';
     const telefono = telefonoMatch ? telefonoMatch[1].trim() : '';
@@ -621,32 +627,63 @@ function parseWhatsAppOrder(text) {
     // Extract products section
     const productosSection = clean.split(/---\s*PRODUCTOS\s*---/i)[1] || '';
     const beforeTotal = productosSection.split(/TOTAL:/i)[0] || productosSection;
+    const section = beforeTotal.replace(/\s+/g, ' ').trim();
 
-    const lines = beforeTotal.split('\n').map(l => l.trim()).filter(l => l);
     const products = [];
-    let currentProduct = null;
+    const productRegex = /([^\n\r]*?)\s*Cantidad:\s*(\d+)\s*Precio:\s*\$?([\d.,]+)/gi;
+    let match;
+    while ((match = productRegex.exec(section)) !== null) {
+        let nameChunk = (match[1] || '').trim();
+        const idMatch = nameChunk.match(/\b(?:id|cod|codigo|sku|prod)\s*[:#-]?\s*(\d+)\b/i)
+            || nameChunk.match(/#\s*(\d+)\b/);
+        const productId = idMatch ? parseInt(idMatch[1], 10) : null;
+        if (idMatch) {
+            nameChunk = nameChunk.replace(idMatch[0], '').replace(/\s{2,}/g, ' ').trim();
+        }
+        const nameClean = nameChunk.replace(/^[^A-Za-z0-9ÁÉÍÓÚáéíóúÑñ]+/g, '').trim();
+        if (!nameClean && !productId) continue;
 
-    for (const line of lines) {
-        const cantidadMatch = line.match(/^Cantidad:\s*(\d+)/i);
-        const precioMatch = line.match(/^Precio:\s*\$?([\d.,]+)/i);
+        const cantidad = parseInt(match[2], 10) || 1;
+        const priceStr = match[3].replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.');
+        const precio = parseFloat(priceStr) || 0;
 
-        if (cantidadMatch) {
-            if (currentProduct) currentProduct.cantidad = parseInt(cantidadMatch[1]);
-        } else if (precioMatch) {
-            if (currentProduct) {
-                const priceStr = precioMatch[1].replace(/\./g, '').replace(',', '.');
-                currentProduct.precio = parseFloat(priceStr) || 0;
-                products.push(currentProduct);
-                currentProduct = null;
-            }
-        } else if (line && !line.match(/^(Gracias|TOTAL)/i)) {
-            const nameClean = line.replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]+/u, '').trim();
-            if (nameClean) {
-                currentProduct = { nombreOriginal: nameClean, cantidad: 1, precio: 0 };
+        products.push({ productId, nombreOriginal: nameClean, cantidad, precio });
+    }
+
+    // Fallback to line-based parsing if regex didn't find products
+    if (products.length === 0) {
+        const lines = beforeTotal.split('\n').map(l => l.trim()).filter(l => l);
+        let currentProduct = null;
+
+        for (const line of lines) {
+            const cantidadMatch = line.match(/^Cantidad:\s*(\d+)/i);
+            const precioMatch = line.match(/^Precio:\s*\$?([\d.,]+)/i);
+
+            if (cantidadMatch) {
+                if (currentProduct) currentProduct.cantidad = parseInt(cantidadMatch[1], 10);
+            } else if (precioMatch) {
+                if (currentProduct) {
+                    const priceStr = precioMatch[1].replace(/\./g, '').replace(',', '.');
+                    currentProduct.precio = parseFloat(priceStr) || 0;
+                    products.push(currentProduct);
+                    currentProduct = null;
+                }
+            } else if (line && !line.match(/^(Gracias|TOTAL)/i)) {
+                let nameChunk = line;
+                const idMatch = nameChunk.match(/\b(?:id|cod|codigo|sku|prod)\s*[:#-]?\s*(\d+)\b/i)
+                    || nameChunk.match(/#\s*(\d+)\b/);
+                const productId = idMatch ? parseInt(idMatch[1], 10) : null;
+                if (idMatch) {
+                    nameChunk = nameChunk.replace(idMatch[0], '').replace(/\s{2,}/g, ' ').trim();
+                }
+                const nameClean = nameChunk.replace(/^[^A-Za-z0-9ÁÉÍÓÚáéíóúÑñ]+/g, '').trim();
+                if (nameClean || productId) {
+                    currentProduct = { productId, nombreOriginal: nameClean, cantidad: 1, precio: 0 };
+                }
             }
         }
+        if (currentProduct && currentProduct.precio > 0) products.push(currentProduct);
     }
-    if (currentProduct && currentProduct.precio > 0) products.push(currentProduct);
 
     return { cliente, telefono, direccion, notas, products };
 }
@@ -680,6 +717,10 @@ async function crearVentaDesdeWhatsApp() {
         return;
     }
 
+    if (productsData.length === 0) {
+        await loadProducts();
+    }
+
     const parsed = parseWhatsAppOrder(text);
     if (parsed.products.length === 0) {
         showToast('No se encontraron productos en el mensaje', 'error');
@@ -687,8 +728,10 @@ async function crearVentaDesdeWhatsApp() {
     }
 
     const nombre = 'WhatsApp - ' + parsed.cliente;
-    const productos = parsed.products.map(wp => {
-        const match = matchWhatsAppProduct(wp.nombreOriginal);
+    ventaProducts = parsed.products.map(wp => {
+        const match = (typeof wp.productId === 'number')
+            ? productsData.find(p => p.id === wp.productId)
+            : matchWhatsAppProduct(wp.nombreOriginal);
         const precioUnit = match ? (match.precioVenta || 0) : (wp.cantidad > 0 ? Math.round(wp.precio / wp.cantidad) : wp.precio);
         return {
             productId: match ? match.id : null,
@@ -701,21 +744,18 @@ async function crearVentaDesdeWhatsApp() {
         };
     });
 
-    try {
-        await api('/ventas', {
-            method: 'POST',
-            body: JSON.stringify({ nombre, productos })
-        });
+    ventaSelectedProduct = null;
+    document.getElementById('ventaNombre').value = nombre;
+    document.getElementById('ventaProductSearch').value = '';
+    document.getElementById('ventaPrecio').value = '';
+    document.getElementById('ventaStock').value = '';
+    document.getElementById('ventaCantidad').value = 1;
+    document.getElementById('ventaHint').style.display = 'none';
 
-        await loadProducts();
-        await loadVentas();
-        updateVentasCount();
-
-        document.getElementById('waTextarea').value = '';
-        showToast('Pedido de WhatsApp guardado correctamente', 'success');
-    } catch (e) {
-        showToast(e.message || 'Error al guardar pedido', 'error');
-    }
+    renderVentaProducts();
+    updateVentasCount();
+    document.getElementById('waTextarea').value = '';
+    showToast('Pedido cargado en el formulario. Revisa y guarda la venta.', 'success');
 }
 
 // ========== COMPRA MODULE ==========

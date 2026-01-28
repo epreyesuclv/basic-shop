@@ -8,14 +8,34 @@ const STORAGE_KEY = 'store_products'; // Clave para localStorage (debe coincidir
 
 // Estado del carrito
 let cart = [];
+let productsCache = [];
 
-// Cargar productos desde localStorage o usar los por defecto
+// Cargar productos desde API / localStorage / defaults
 function getProducts() {
+    if (productsCache.length > 0) return productsCache;
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
-        return JSON.parse(saved);
+        productsCache = JSON.parse(saved);
+        return productsCache;
     }
-    return products; // productos por defecto del archivo products.js
+    productsCache = products; // productos por defecto del archivo products.js
+    return productsCache;
+}
+
+async function loadProductsFromApi() {
+    try {
+        const res = await fetch('/api/public/products');
+        if (!res.ok) throw new Error('Failed to load products');
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+            productsCache = data;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            return;
+        }
+    } catch (e) {
+        // fallback to localStorage / defaults
+    }
+    getProducts();
 }
 
 // Elementos del DOM
@@ -37,10 +57,13 @@ const orderSummary = document.getElementById('orderSummary');
 const customerForm = document.getElementById('customerForm');
 
 // Inicializar la tienda
-function init() {
+async function init() {
+    await loadProductsFromApi();
     renderCategories();
     renderProducts();
     loadCart();
+    reconcileCartIds();
+    updateCart();
     setupEventListeners();
 }
 
@@ -186,7 +209,29 @@ function loadCart() {
     const savedCart = localStorage.getItem('cart');
     if (savedCart) {
         cart = JSON.parse(savedCart);
-        updateCart();
+    }
+}
+
+// Asegurar que el carrito tenga IDs de la base de datos
+function reconcileCartIds() {
+    if (!cart.length) return;
+    const currentProducts = getProducts();
+    const byName = new Map(currentProducts.map(p => [p.name.toLowerCase(), p]));
+    let changed = false;
+
+    cart.forEach(item => {
+        const exists = currentProducts.some(p => p.id === item.id);
+        if (!exists) {
+            const match = byName.get(String(item.name).toLowerCase());
+            if (match) {
+                item.id = match.id;
+                changed = true;
+            }
+        }
+    });
+
+    if (changed) {
+        saveCart();
     }
 }
 
@@ -229,7 +274,7 @@ function generateWhatsAppMessage() {
     message += `\n*--- PRODUCTOS ---*\n`;
 
     cart.forEach(item => {
-        message += `${item.emoji} ${item.name}\n`;
+        message += `ID: ${item.id} - ${item.emoji} ${item.name}\n`;
         message += `   Cantidad: ${item.quantity}\n`;
         message += `   Precio: $${formatPrice(item.price * item.quantity)}\n\n`;
     });

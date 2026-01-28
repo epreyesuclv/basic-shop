@@ -1,4 +1,5 @@
 const express = require('express');
+require('dotenv').config();
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
@@ -19,14 +20,43 @@ app.get('/admin', (req, res) => {
 });
 
 // ========== DATABASE ==========
+const isProduction = process.env.NODE_ENV === 'production';
+const DATABASE_URL = process.env.DATABASE_URL || '';
+const shouldSeed = process.env.SEED_DB ? process.env.SEED_DB === 'true' : !isProduction;
+
+if (!DATABASE_URL && isProduction) {
+    throw new Error('DATABASE_URL is required in production. Configure a persistent Postgres instance.');
+}
+
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL || 'postgresql://localhost:5432/basic_shop',
-    ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+    connectionString: DATABASE_URL || 'postgresql://localhost:5432/basic_shop',
+    ssl: DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
 async function query(text, params) {
     return pool.query(text, params);
 }
+
+// ========== PUBLIC PRODUCTS (STORE FRONT) ==========
+app.get('/api/public/products', async (req, res) => {
+    try {
+        const { rows } = await query(
+            'SELECT id, name, emoji, category, description, "precioVenta" FROM products ORDER BY id'
+        );
+        const payload = rows.map(p => ({
+            id: p.id,
+            name: p.name,
+            emoji: p.emoji,
+            category: p.category,
+            description: p.description || '',
+            price: p.precioVenta || 0
+        }));
+        res.json(payload);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Error del servidor' });
+    }
+});
 
 async function initDatabase() {
     await query(`
@@ -84,18 +114,20 @@ async function initDatabase() {
         );
     `);
 
-    // Create default admin user if none exists
-    const { rows } = await query('SELECT COUNT(*) as count FROM users');
-    if (parseInt(rows[0].count) === 0) {
-        const hash = bcrypt.hashSync('admin123', 10);
-        await query('INSERT INTO users (username, password_hash) VALUES ($1, $2)', ['admin', hash]);
-        console.log('Default admin user created (admin / admin123)');
-    }
+    if (shouldSeed) {
+        // Create default admin user if none exists
+        const { rows } = await query('SELECT COUNT(*) as count FROM users');
+        if (parseInt(rows[0].count) === 0) {
+            const hash = bcrypt.hashSync('admin123', 10);
+            await query('INSERT INTO users (username, password_hash) VALUES ($1, $2)', ['admin', hash]);
+            console.log('Default admin user created (admin / admin123)');
+        }
 
-    // Seed products if empty
-    const prodCount = await query('SELECT COUNT(*) as count FROM products');
-    if (parseInt(prodCount.rows[0].count) === 0) {
-        await seedProducts();
+        // Seed products if empty
+        const prodCount = await query('SELECT COUNT(*) as count FROM products');
+        if (parseInt(prodCount.rows[0].count) === 0) {
+            await seedProducts();
+        }
     }
 }
 
