@@ -13,6 +13,11 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
 
+// Serve admin panel at /admin (Railway deploy expects a clean path)
+app.get('/admin', (req, res) => {
+    res.sendFile(path.join(__dirname, 'admin.html'));
+});
+
 // ========== DATABASE ==========
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL || 'postgresql://localhost:5432/basic_shop',
