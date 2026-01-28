@@ -576,6 +576,15 @@
                         </div>
                     </div>
                     <div class="form-group">
+                        <label for="productImage">Foto del producto</label>
+                        <input type="file" id="productImage" class="form-input" accept="image/*">
+                        <input type="hidden" id="productImageData">
+                        <div class="image-preview" id="productImagePreview">
+                            <span>Sin imagen</span>
+                        </div>
+                        <button type="button" class="btn-secondary btn-sm" id="clearImageBtn">Quitar foto</button>
+                    </div>
+                    <div class="form-group">
                         <label for="productCategory">Categoría *</label>
                         <div class="category-input">
                             <select id="productCategorySelect" class="form-input">

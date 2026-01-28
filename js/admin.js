@@ -222,11 +222,14 @@ function renderInventory() {
     tbody.innerHTML = productsData.map(p => {
         const existencia = (p.cantidad || 0) - (p.vendido || 0);
         const ganancia = ((p.precioVenta || 0) - (p.precioCompra || 0)) * (p.vendido || 0);
+        const imageCell = p.image
+            ? `<img src="${p.image}" class="product-thumb" alt="${escapeHtml(p.name)}">`
+            : `<span class="product-emoji">${p.emoji || '📦'}</span>`;
         return `
             <tr>
                 <td>${escapeHtml(p.name)}</td>
                 <td>${escapeHtml(p.category)}</td>
-                <td><span style="font-size:1.5rem;">${p.emoji || '📦'}</span></td>
+                <td>${imageCell}</td>
                 <td>$${formatPrice(p.precioCompra || 0)}</td>
                 <td>$${formatPrice(p.precioVenta || 0)}</td>
                 <td>${p.cantidad || 0}</td>
@@ -273,12 +276,48 @@ function updateCategoryOptions() {
         categories.map(cat => `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`).join('');
 }
 
+function setProductImagePreview(dataUrl) {
+    const preview = document.getElementById('productImagePreview');
+    if (!preview) return;
+    if (dataUrl) {
+        preview.innerHTML = `<img src="${dataUrl}" alt="Foto del producto">`;
+    } else {
+        preview.innerHTML = '<span>Sin imagen</span>';
+    }
+}
+
+function clearProductImage() {
+    const input = document.getElementById('productImage');
+    const hidden = document.getElementById('productImageData');
+    if (input) input.value = '';
+    if (hidden) hidden.value = '';
+    setProductImagePreview('');
+}
+
+function handleProductImageChange(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+        showToast('La imagen debe ser menor a 2MB', 'error');
+        clearProductImage();
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+        const dataUrl = reader.result;
+        document.getElementById('productImageData').value = dataUrl;
+        setProductImagePreview(dataUrl);
+    };
+    reader.readAsDataURL(file);
+}
+
 // ========== PRODUCT CRUD ==========
 function openAddModal() {
     editingProductId = null;
     document.getElementById('modalTitle').textContent = 'Agregar Producto';
     document.getElementById('productForm').reset();
     document.getElementById('productId').value = '';
+    clearProductImage();
     updateCategoryOptions();
     document.getElementById('productModal').classList.add('active');
 }
@@ -296,6 +335,8 @@ function openEditModal(id) {
     document.getElementById('productPrecioVenta').value = product.precioVenta || 0;
     document.getElementById('productCantidad').value = product.cantidad || 0;
     document.getElementById('productVendido').value = product.vendido || 0;
+    document.getElementById('productImageData').value = product.image || '';
+    setProductImagePreview(product.image || '');
 
     updateCategoryOptions();
     document.getElementById('productCategorySelect').value = product.category;
@@ -321,13 +362,14 @@ async function handleProductSubmit(e) {
     const precioVenta = parseInt(document.getElementById('productPrecioVenta').value) || 0;
     const cantidad = parseInt(document.getElementById('productCantidad').value) || 0;
     const vendido = parseInt(document.getElementById('productVendido').value) || 0;
+    const image = document.getElementById('productImageData').value.trim();
 
     if (!name || !category || !precioVenta) {
         showToast('Completa todos los campos requeridos', 'error');
         return;
     }
 
-    const productData = { name, emoji, category, precioCompra, precioVenta, cantidad, vendido };
+    const productData = { name, emoji, category, precioCompra, precioVenta, cantidad, vendido, image };
 
     try {
         if (editingProductId) {
@@ -1161,6 +1203,8 @@ function setupEventListeners() {
     document.getElementById('closeModal').addEventListener('click', closeProductModal);
     document.getElementById('cancelBtn').addEventListener('click', closeProductModal);
     document.getElementById('productForm').addEventListener('submit', handleProductSubmit);
+    document.getElementById('productImage').addEventListener('change', handleProductImageChange);
+    document.getElementById('clearImageBtn').addEventListener('click', clearProductImage);
 
     // Delete modal
     document.getElementById('closeDeleteModal').addEventListener('click', closeDeleteModal);

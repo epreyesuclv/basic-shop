@@ -1,6 +1,8 @@
 const express = require('express');
 require('dotenv').config();
 const { Pool } = require('pg');
+const { Sequelize } = require('sequelize');
+const { Umzug, SequelizeStorage } = require('umzug');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const cors = require('cors');
@@ -11,7 +13,7 @@ const PORT = process.env.PORT || 3001;
 
 // ========== MIDDLEWARE ==========
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname)));
 
 // Serve admin panel at /admin (Railway deploy expects a clean path)
@@ -37,11 +39,30 @@ async function query(text, params) {
     return pool.query(text, params);
 }
 
+async function runMigrations() {
+    const sequelize = new Sequelize(DATABASE_URL || 'postgresql://localhost:5432/basic_shop', {
+        dialect: 'postgres',
+        logging: false,
+        dialectOptions: DATABASE_URL ? { ssl: { rejectUnauthorized: false } } : {}
+    });
+
+    const migrationsGlob = path.join(__dirname, 'migrations', '*.js').replace(/\\/g, '/');
+    const umzug = new Umzug({
+        migrations: { glob: migrationsGlob },
+        context: sequelize.getQueryInterface(),
+        storage: new SequelizeStorage({ sequelize }),
+        logger: console
+    });
+
+    await umzug.up();
+    await sequelize.close();
+}
+
 // ========== PUBLIC PRODUCTS (STORE FRONT) ==========
 app.get('/api/public/products', async (req, res) => {
     try {
         const { rows } = await query(
-            'SELECT id, name, emoji, category, description, "precioVenta" FROM products ORDER BY id'
+            'SELECT id, name, emoji, category, description, image, "precioVenta" FROM products ORDER BY id'
         );
         const payload = rows.map(p => ({
             id: p.id,
@@ -49,7 +70,8 @@ app.get('/api/public/products', async (req, res) => {
             emoji: p.emoji,
             category: p.category,
             description: p.description || '',
-            price: p.precioVenta || 0
+            price: p.precioVenta || 0,
+            image: p.image || ''
         }));
         res.json(payload);
     } catch (err) {
@@ -59,61 +81,6 @@ app.get('/api/public/products', async (req, res) => {
 });
 
 async function initDatabase() {
-    await query(`
-        CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT NOW()
-        );
-
-        CREATE TABLE IF NOT EXISTS sessions (
-            token TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL REFERENCES users(id),
-            created_at TIMESTAMP DEFAULT NOW()
-        );
-
-        CREATE TABLE IF NOT EXISTS products (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL,
-            emoji TEXT DEFAULT '📦',
-            category TEXT NOT NULL,
-            "precioCompra" REAL DEFAULT 0,
-            "precioVenta" REAL DEFAULT 0,
-            cantidad INTEGER DEFAULT 0,
-            vendido INTEGER DEFAULT 0,
-            description TEXT DEFAULT ''
-        );
-
-        CREATE TABLE IF NOT EXISTS ventas (
-            id SERIAL PRIMARY KEY,
-            nombre TEXT NOT NULL,
-            productos_json TEXT NOT NULL,
-            total REAL DEFAULT 0,
-            fecha TIMESTAMP DEFAULT NOW(),
-            "totalProductos" INTEGER DEFAULT 0,
-            "totalUnidades" INTEGER DEFAULT 0
-        );
-
-        CREATE TABLE IF NOT EXISTS compras (
-            id SERIAL PRIMARY KEY,
-            proveedor TEXT NOT NULL,
-            fecha TEXT NOT NULL,
-            factura TEXT DEFAULT '',
-            notas TEXT DEFAULT '',
-            productos_json TEXT NOT NULL,
-            total REAL DEFAULT 0
-        );
-
-        CREATE TABLE IF NOT EXISTS gastos (
-            id SERIAL PRIMARY KEY,
-            descripcion TEXT NOT NULL,
-            categoria TEXT DEFAULT 'Otros',
-            monto REAL DEFAULT 0,
-            fecha TEXT NOT NULL
-        );
-    `);
-
     if (shouldSeed) {
         // Create default admin user if none exists
         const { rows } = await query('SELECT COUNT(*) as count FROM users');
@@ -133,53 +100,14 @@ async function initDatabase() {
 
 async function seedProducts() {
     const defaultProducts = [
-        { name: 'Carne para hamburguesa x4', emoji: '🍔', category: 'Carnes Preparadas', price: 18000 },
-        { name: 'Carne para hamburguesa x8', emoji: '🍔', category: 'Carnes Preparadas', price: 32000 },
-        { name: 'Albondigas de res x12', emoji: '🧆', category: 'Carnes Preparadas', price: 22000 },
-        { name: 'Chorizos artesanales x6', emoji: '🌭', category: 'Carnes Preparadas', price: 20000 },
-        { name: 'Butifarra x8', emoji: '🌭', category: 'Carnes Preparadas', price: 16000 },
-        { name: 'Carne desmechada 500g', emoji: '🥩', category: 'Carnes Preparadas', price: 25000 },
-        { name: 'Nuggets de pollo x20', emoji: '🍗', category: 'Pollo', price: 15000 },
-        { name: 'Alitas BBQ x12', emoji: '🍗', category: 'Pollo', price: 24000 },
-        { name: 'Milanesa de pollo x4', emoji: '🍗', category: 'Pollo', price: 20000 },
-        { name: 'Deditos de pollo x15', emoji: '🍗', category: 'Pollo', price: 18000 },
-        { name: 'Pechuga apanada x4', emoji: '🍗', category: 'Pollo', price: 22000 },
-        { name: 'Empanadas de carne x10', emoji: '🥟', category: 'Empanadas y Pastelitos', price: 14000 },
-        { name: 'Empanadas de pollo x10', emoji: '🥟', category: 'Empanadas y Pastelitos', price: 14000 },
-        { name: 'Empanadas hawaianas x10', emoji: '🥟', category: 'Empanadas y Pastelitos', price: 16000 },
-        { name: 'Pastelitos de queso x10', emoji: '🥐', category: 'Empanadas y Pastelitos', price: 12000 },
-        { name: 'Dedos de queso x12', emoji: '🧀', category: 'Empanadas y Pastelitos', price: 13000 },
-        { name: 'Arepas rellenas x6', emoji: '🫓', category: 'Empanadas y Pastelitos', price: 15000 },
-        { name: 'Papas a la francesa 1kg', emoji: '🍟', category: 'Papas y Acompanantes', price: 10000 },
-        { name: 'Aros de cebolla x20', emoji: '🧅', category: 'Papas y Acompanantes', price: 12000 },
-        { name: 'Yuca prefrita 1kg', emoji: '🥔', category: 'Papas y Acompanantes', price: 8000 },
-        { name: 'Platano maduro tajado 1kg', emoji: '🍌', category: 'Papas y Acompanantes', price: 9000 },
-        { name: 'Papa criolla prefrita 1kg', emoji: '🥔', category: 'Papas y Acompanantes', price: 11000 },
-        { name: 'Salsa BBQ 500ml', emoji: '🫙', category: 'Salsas y Aderezos', price: 8000 },
-        { name: 'Salsa de ajo 300ml', emoji: '🧄', category: 'Salsas y Aderezos', price: 7000 },
-        { name: 'Guacamole 250g', emoji: '🥑', category: 'Salsas y Aderezos', price: 12000 },
-        { name: 'Salsa rosada 400ml', emoji: '🫙', category: 'Salsas y Aderezos', price: 6000 },
-        { name: 'Chimichurri 300ml', emoji: '🌿', category: 'Salsas y Aderezos', price: 9000 },
-        { name: 'Combo Parrillero Familiar', emoji: '🔥', category: 'Combos', price: 85000 },
-        { name: 'Combo Hamburguesas Completo', emoji: '🍔', category: 'Combos', price: 55000 },
-        { name: 'Combo Pollo Party', emoji: '🎉', category: 'Combos', price: 65000 },
-        { name: 'Combo Snacks para Pola', emoji: '🍺', category: 'Combos', price: 45000 },
-        { name: 'Combo Empanadas Surtidas', emoji: '🥟', category: 'Combos', price: 38000 },
-        { name: 'Churros rellenos x8', emoji: '🥖', category: 'Postres', price: 14000 },
-        { name: 'Bunuelos x10', emoji: '🧁', category: 'Postres', price: 10000 },
-        { name: 'Torta de chocolate porcion', emoji: '🍫', category: 'Postres', price: 8000 },
-        { name: 'Jugo natural 1L', emoji: '🧃', category: 'Bebidas', price: 8000 },
-        { name: 'Gaseosa 1.5L', emoji: '🥤', category: 'Bebidas', price: 5000 },
-        { name: 'Agua 600ml', emoji: '💧', category: 'Bebidas', price: 2000 },
-        { name: 'Limonada de coco 1L', emoji: '🥥', category: 'Bebidas', price: 10000 },
-        { name: 'Cerveza artesanal', emoji: '🍺', category: 'Bebidas', price: 7000 },
+        
     ];
 
     for (const p of defaultProducts) {
         await query(
-            `INSERT INTO products (name, emoji, category, "precioCompra", "precioVenta", cantidad, vendido)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [p.name, p.emoji, p.category, Math.round(p.price * 0.6), p.price, 50, 0]
+            `INSERT INTO products (name, emoji, category, "precioCompra", "precioVenta", cantidad, vendido, image)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [p.name, p.emoji, p.category, Math.round(p.price * 0.6), p.price, 50, 0, '']
         );
     }
     console.log(`Seeded ${defaultProducts.length} products`);
@@ -286,16 +214,15 @@ app.get('/api/products', authenticate, async (req, res) => {
 
 app.post('/api/products', authenticate, async (req, res) => {
     try {
-        const { name, emoji, category, precioCompra, precioVenta, cantidad, vendido } = req.body;
+        const { name, emoji, category, precioCompra, precioVenta, cantidad, vendido, image } = req.body;
 
         if (!name || !category || !precioVenta) {
             return res.status(400).json({ error: 'Nombre, categoría y precio de venta son requeridos' });
         }
 
         const { rows } = await query(
-            `INSERT INTO products (name, emoji, category, "precioCompra", "precioVenta", cantidad, vendido)
-             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-            [name, emoji || '📦', category, precioCompra || 0, precioVenta, cantidad || 0, vendido || 0]
+            `INSERT INTO products (name, emoji, category, "precioCompra", "precioVenta", cantidad, vendido, image)\r\n             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+            [name, emoji || '📦', category, precioCompra || 0, precioVenta, cantidad || 0, vendido || 0, image || '']
         );
         res.json(rows[0]);
     } catch (err) {
@@ -306,7 +233,7 @@ app.post('/api/products', authenticate, async (req, res) => {
 
 app.put('/api/products/:id', authenticate, async (req, res) => {
     try {
-        const { name, emoji, category, precioCompra, precioVenta, cantidad, vendido } = req.body;
+        const { name, emoji, category, precioCompra, precioVenta, cantidad, vendido, image } = req.body;
         const { id } = req.params;
 
         const existing = await query('SELECT * FROM products WHERE id = $1', [id]);
@@ -316,18 +243,8 @@ app.put('/api/products/:id', authenticate, async (req, res) => {
         const ex = existing.rows[0];
 
         const { rows } = await query(
-            `UPDATE products SET name = $1, emoji = $2, category = $3, "precioCompra" = $4,
-             "precioVenta" = $5, cantidad = $6, vendido = $7 WHERE id = $8 RETURNING *`,
-            [
-                name || ex.name,
-                emoji || ex.emoji,
-                category || ex.category,
-                precioCompra ?? ex.precioCompra,
-                precioVenta ?? ex.precioVenta,
-                cantidad ?? ex.cantidad,
-                vendido ?? ex.vendido,
-                id
-            ]
+            `UPDATE products SET name = $1, emoji = $2, category = $3, "precioCompra" = $4,\r\n             "precioVenta" = $5, cantidad = $6, vendido = $7, image = $8 WHERE id = $9 RETURNING *`,
+            [name || ex.name, emoji || ex.emoji, category || ex.category, precioCompra ?? ex.precioCompra, precioVenta ?? ex.precioVenta, cantidad ?? ex.cantidad, vendido ?? ex.vendido, image ?? ex.image, id]
         );
         res.json(rows[0]);
     } catch (err) {
@@ -553,13 +470,18 @@ app.get('/api/dashboard', authenticate, async (req, res) => {
 });
 
 // ========== START ==========
-initDatabase().then(() => {
-    app.listen(PORT, () => {
-        console.log(`Server running at http://localhost:${PORT}`);
-        console.log(`Admin panel: http://localhost:${PORT}/admin.html`);
-        console.log(`Store: http://localhost:${PORT}/index.html`);
+runMigrations()
+    .then(initDatabase)
+    .then(() => {
+        app.listen(PORT, () => {
+            console.log(`Server running at http://localhost:${PORT}`);
+            console.log(`Admin panel: http://localhost:${PORT}/admin.html`);
+            console.log(`Store: http://localhost:${PORT}/index.html`);
+        });
+    })
+    .catch(err => {
+        console.error('Failed to initialize database or migrations:', err.message);
+        process.exit(1);
     });
-}).catch(err => {
-    console.error('Failed to initialize database:', err.message);
-    process.exit(1);
-});
+
+

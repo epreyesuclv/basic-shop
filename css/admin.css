@@ -496,6 +496,19 @@ body {
     border-bottom: none;
 }
 
+.product-thumb {
+    width: 36px;
+    height: 36px;
+    object-fit: cover;
+    border-radius: var(--radius-xs);
+    border: 1px solid var(--border);
+    background: var(--bg);
+}
+
+.product-emoji {
+    font-size: 1.5rem;
+}
+
 .profit-cell {
     color: var(--green);
     font-weight: 600;
@@ -772,6 +785,11 @@ body {
     background: var(--bg);
 }
 
+.btn-sm {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+}
+
 .btn-danger {
     display: inline-flex;
     align-items: center;
@@ -838,6 +856,10 @@ body {
     font-family: inherit;
 }
 
+.form-input[type="file"] {
+    padding: 0.5rem 0.75rem;
+}
+
 .form-input:focus {
     outline: none;
     border-color: var(--blue);
@@ -859,6 +881,29 @@ body {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+}
+
+.image-preview {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-xs);
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 84px;
+    color: var(--text-lighter);
+    font-size: 0.85rem;
+}
+
+.image-preview img {
+    max-width: 120px;
+    max-height: 120px;
+    object-fit: cover;
+    border-radius: var(--radius-xs);
+    border: 1px solid var(--border);
+    background: var(--white);
 }
 
 /* Search Results Dropdown */

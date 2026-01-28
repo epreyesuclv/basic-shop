@@ -88,9 +88,10 @@ function renderProducts(category = 'Todos') {
 
     productsGrid.innerHTML = filteredProducts.map(product => `
         <div class="product-card" data-id="${product.id}">
-            <div class="product-image placeholder">
-                ${product.emoji || '🍽️'}
-            </div>
+            ${product.image
+                ? `<img class="product-image" src="${product.image}" alt="${product.name}">`
+                : `<div class="product-image placeholder">${product.emoji || '🍽️'}</div>`
+            }
             <div class="product-info">
                 <span class="product-category">${product.category}</span>
                 <h3 class="product-name">${product.name}</h3>
