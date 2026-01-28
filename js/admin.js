@@ -604,6 +604,120 @@ async function deleteVenta(id) {
     }
 }
 
+// ========== WHATSAPP IMPORT ==========
+function parseWhatsAppOrder(text) {
+    const clean = text.replace(/\*/g, '');
+
+    const clienteMatch = clean.match(/Cliente:\s*(.+?)(?:\n|Telefono:|Direccion:|Notas:|---)/i);
+    const telefonoMatch = clean.match(/Telefono:\s*(.+?)(?:\n|Direccion:|Notas:|---)/i);
+    const direccionMatch = clean.match(/Direccion:\s*(.+?)(?:\n|Notas:|---)/i);
+    const notasMatch = clean.match(/Notas:\s*(.+?)(?:\n|---)/i);
+
+    const cliente = clienteMatch ? clienteMatch[1].trim() : 'Sin nombre';
+    const telefono = telefonoMatch ? telefonoMatch[1].trim() : '';
+    const direccion = direccionMatch ? direccionMatch[1].trim() : '';
+    const notas = notasMatch ? notasMatch[1].trim() : '';
+
+    // Extract products section
+    const productosSection = clean.split(/---\s*PRODUCTOS\s*---/i)[1] || '';
+    const beforeTotal = productosSection.split(/TOTAL:/i)[0] || productosSection;
+
+    const lines = beforeTotal.split('\n').map(l => l.trim()).filter(l => l);
+    const products = [];
+    let currentProduct = null;
+
+    for (const line of lines) {
+        const cantidadMatch = line.match(/^Cantidad:\s*(\d+)/i);
+        const precioMatch = line.match(/^Precio:\s*\$?([\d.,]+)/i);
+
+        if (cantidadMatch) {
+            if (currentProduct) currentProduct.cantidad = parseInt(cantidadMatch[1]);
+        } else if (precioMatch) {
+            if (currentProduct) {
+                const priceStr = precioMatch[1].replace(/\./g, '').replace(',', '.');
+                currentProduct.precio = parseFloat(priceStr) || 0;
+                products.push(currentProduct);
+                currentProduct = null;
+            }
+        } else if (line && !line.match(/^(Gracias|TOTAL)/i)) {
+            const nameClean = line.replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]+/u, '').trim();
+            if (nameClean) {
+                currentProduct = { nombreOriginal: nameClean, cantidad: 1, precio: 0 };
+            }
+        }
+    }
+    if (currentProduct && currentProduct.precio > 0) products.push(currentProduct);
+
+    return { cliente, telefono, direccion, notas, products };
+}
+
+function matchWhatsAppProduct(waName) {
+    const q = waName.toLowerCase().trim();
+    let match = productsData.find(p => p.name.toLowerCase() === q);
+    if (match) return match;
+    match = productsData.find(p => p.name.toLowerCase().includes(q));
+    if (match) return match;
+    match = productsData.find(p => q.includes(p.name.toLowerCase()));
+    if (match) return match;
+
+    const words = q.split(/\s+/).filter(w => w.length > 2);
+    let best = null, bestScore = 0;
+    for (const p of productsData) {
+        const pw = p.name.toLowerCase().split(/\s+/);
+        const score = words.filter(w => pw.some(x => x.includes(w) || w.includes(x))).length;
+        if (score > bestScore && score >= Math.min(2, words.length)) {
+            bestScore = score;
+            best = p;
+        }
+    }
+    return best;
+}
+
+async function crearVentaDesdeWhatsApp() {
+    const text = document.getElementById('waTextarea').value.trim();
+    if (!text) {
+        showToast('Pega un mensaje de WhatsApp primero', 'error');
+        return;
+    }
+
+    const parsed = parseWhatsAppOrder(text);
+    if (parsed.products.length === 0) {
+        showToast('No se encontraron productos en el mensaje', 'error');
+        return;
+    }
+
+    const nombre = 'WhatsApp - ' + parsed.cliente;
+    const productos = parsed.products.map(wp => {
+        const match = matchWhatsAppProduct(wp.nombreOriginal);
+        const precioUnit = match ? (match.precioVenta || 0) : (wp.cantidad > 0 ? Math.round(wp.precio / wp.cantidad) : wp.precio);
+        return {
+            productId: match ? match.id : null,
+            id: match ? match.id : null,
+            nombre: match ? match.name : wp.nombreOriginal,
+            precioUnit,
+            precioVenta: precioUnit,
+            cantidad: wp.cantidad,
+            total: precioUnit * wp.cantidad
+        };
+    });
+
+    try {
+        await api('/ventas', {
+            method: 'POST',
+            body: JSON.stringify({ nombre, productos })
+        });
+
+        await loadProducts();
+        await loadVentas();
+        updateVentasCount();
+
+        document.getElementById('waTextarea').value = '';
+        showToast('Pedido de WhatsApp guardado correctamente', 'success');
+    } catch (e) {
+        showToast(e.message || 'Error al guardar pedido', 'error');
+    }
+}
+
 // ========== COMPRA MODULE ==========
 function updateComprasCount() {
     document.getElementById('comprasCount').textContent = comprasData.length;
@@ -1019,6 +1133,7 @@ function setupEventListeners() {
     });
     document.getElementById('ventaAddProduct').addEventListener('click', addVentaProduct);
     document.getElementById('ventaGuardar').addEventListener('click', guardarVenta);
+    document.getElementById('waCrearVenta').addEventListener('click', crearVentaDesdeWhatsApp);
 
     // Compra
     document.getElementById('compraProductName').addEventListener('input', (e) => {

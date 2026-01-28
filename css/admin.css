@@ -1093,6 +1093,19 @@ body {
     margin-left: 1rem;
 }
 
+/* ========== WHATSAPP IMPORT ========== */
+.wa-textarea {
+    min-height: 150px;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    resize: vertical;
+}
+
+.wa-card {
+    margin-bottom: 1.25rem;
+}
+
 /* ========== RESPONSIVE ========== */
 @media (max-width: 1024px) {
     .module-cards {
@@ -1106,6 +1119,7 @@ body {
     .venta-sidebar {
         position: static;
     }
+
 }
 
 @media (max-width: 768px) {
